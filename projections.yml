@@ -1,0 +1,6 @@
+- source: app/assets/javascripts
+  target: spec/javascripts
+
+- source: app
+  target: spec/zephyr
+

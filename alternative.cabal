@@ -14,19 +14,12 @@ cabal-version:       >=1.8
 executable alternative
   hs-source-dirs: src
   main-is:        Main.hs
-  -- main-is:        Example.hs
-  -- exposed-modules:
-    -- Deliver.CommandLine.Main
-
-  -- ghc-options:    -O3 -Wall -threaded
-  ghc-options:    -Wall
+  ghc-options:    -static -Wall
   build-depends:
       base >= 4 && <= 5
-    , either
-    , mtl
-    , transformers
-    , errors
-    , containers
     , filepath
+    , yaml
+    , aeson
+    , bytestring
 
 

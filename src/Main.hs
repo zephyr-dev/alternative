@@ -1,66 +1,85 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import Control.Applicative ((<$>), (<*>))
 import Data.List (intercalate, take, zip, dropWhile, isPrefixOf)
 import System.Environment (getArgs)
 import System.FilePath.Posix (splitPath, splitFileName, takeBaseName, splitExtension)
+import Data.Yaml (decode)
+import Data.Aeson (FromJSON(..), Value(..), (.:))
+import qualified Data.ByteString as BS
+
+type FileName = String
+type DirName = String
+data Projection = Projection {
+    source  :: [DirName]
+  , target  :: [DirName]
+  }
+
+instance FromJSON Projection where
+    parseJSON (Object v) = Projection <$>
+                           (splitDirs <$> v .: "source") <*>
+                           (splitDirs <$> v .: "target")
+    -- A non-Object value is of the wrong type, so fail.
+    parseJSON _ = error "Can't parse Projection from YAML/JSON"
+
+splitDirs = map (filter (/='/')) . splitPath
 
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    filePath:[] -> do
-      
-      putStr $ show $ alternative filePath
-    _ -> putStr "wrong rguments"
+    [filePath] -> do
+      maybeProjections <- decode <$> BS.readFile "projections.yml"
+      putStr $ maybe
+        "bad yaml"
+        (show . alternative filePath)
+        maybeProjections
+
+    _ -> putStr "wrong arguments"
 
   where
-    alternative filePath = 
+    alternative :: FilePath -> [Projection] -> FilePath
+    alternative filePath projections =
       let
-        alternativePath = intercalate "/" (alternativeDirs (splitDirs filePath) alternativeRules)
+        alternativePath = joinDirs $ alternativeDirs (dirs filePath) projections
+        dirs = splitDirs . fst . splitFileName 
+        joinDirs = intercalate "/"
       in
-       alternativePath ++ "/" ++ (alternativeFile filePath)
+      alternativePath ++ "/" ++ (alternativeFile filePath)
+      where
+        alternativeFile :: FilePath -> FileName
+        alternativeFile filePath =
+          let
+            baseFilename = takeBaseName filePath
+            (_, extension) = splitExtension fileName
+            (_, fileName) = splitFileName filePath
+          in
+          baseFilename ++ "_spec" ++ extension
 
-    alternativeFile filePath =
-      let
-        baseFilename = takeBaseName filePath
-        (_, extension) = splitExtension fileName
-        (_, fileName) = splitFileName filePath
-
-      in
-      baseFilename ++ "_spec" ++ extension
-
-    splitDirs filePath =
-      let
-        (path, _) = splitFileName filePath
-      in
-
-      map (filter (/='/')) $ splitPath path
-
-
-    alternativeDirs :: [String] -> [([String], [String])] -> [String]
-    {- alternativeDirs dirs [] = dirs -}
-    alternativeDirs dirs (rule:rest) =
-      case matchRule dirs (fst rule) of
-        Nothing ->
-          alternativeDirs dirs rest
-        Just remainder ->
-          (snd rule) ++ remainder
+        alternativeDirs :: [DirName] -> [Projection] -> [DirName]
+        {- alternativeDirs dirs [] = dirs -}
+        alternativeDirs dirs (projection:rest) =
+          maybe
+            (alternativeDirs dirs rest)
+            (target projection ++)
+            $ matchProjection dirs projection
 
 
-    matchRule :: [String] -> [String] -> Maybe [String]
-    matchRule dirs rulePrefix =
-      if rulePrefix `isPrefixOf` dirs
-      then Just $ map snd $ dropWhile (\(a, b) -> a == b) $ zipWithDefault "" "" rulePrefix dirs
-      else Nothing
+          where
+            matchProjection :: [DirName] -> Projection -> Maybe [DirName]
+            matchProjection dirs projection =
+              let
+                projectionSource = source projection
+              in
+              if projectionSource `isPrefixOf` dirs
+              then Just $ map snd $ dropWhile (\(a, b) -> a == b) $ zipWithDefault "" "" projectionSource dirs
+              else Nothing
+              where
+                zipWithDefault :: a -> b -> [a] -> [b] -> [(a,b)]
+                zipWithDefault da db la lb = let len = max (length la) (length lb)
+                                                 la' = la ++ (repeat da)
+                                                 lb' = lb ++ (repeat db)
+                                             in take len $ zip la' lb'  
 
-    zipWithDefault :: a -> b -> [a] -> [b] -> [(a,b)]
-    zipWithDefault da db la lb = let len = max (length la) (length lb)
-                                     la' = la ++ (repeat da)
-                                     lb' = lb ++ (repeat db)
-                                 in take len $ zip la' lb'  
 
-    alternativeRules = [
-          (["app", "assets", "javascripts"], ["spec", "javascripts"])
-        , (["app"],                          ["spec", "zephyr"])
-      ]
