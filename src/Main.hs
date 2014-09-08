@@ -30,10 +30,10 @@ main = do
   args <- getArgs
   case args of
     [filePath] -> do
-      maybeProjections <- decode <$> BS.readFile "projections.yml"
+      maybeProjections <- decode <$> BS.readFile "config/projections.yml"
       putStr $ maybe
         "bad yaml"
-        (show . alternative filePath)
+        (alternative filePath)
         maybeProjections
 
     _ -> putStr "wrong arguments"
@@ -58,7 +58,7 @@ main = do
           baseFilename ++ "_spec" ++ extension
 
         alternativeDirs :: [DirName] -> [Projection] -> [DirName]
-        {- alternativeDirs dirs [] = dirs -}
+        alternativeDirs dirs [] = ["unknown source dir: " ++ (intercalate "/" dirs)]
         alternativeDirs dirs (projection:rest) =
           maybe
             (alternativeDirs dirs rest)
@@ -68,13 +68,14 @@ main = do
 
           where
             matchProjection :: [DirName] -> Projection -> Maybe [DirName]
+            matchProjection [] projection = Nothing
             matchProjection dirs projection =
               let
                 projectionSource = source projection
               in
               if projectionSource `isPrefixOf` dirs
               then Just $ map snd $ dropWhile (\(a, b) -> a == b) $ zipWithDefault "" "" projectionSource dirs
-              else Nothing
+              else matchProjection (tail dirs) projection
               where
                 zipWithDefault :: a -> b -> [a] -> [b] -> [(a,b)]
                 zipWithDefault da db la lb = let len = max (length la) (length lb)
