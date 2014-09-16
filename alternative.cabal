@@ -17,6 +17,7 @@ executable alternative
   ghc-options:    -static -Wall
   build-depends:
       base >= 4 && <= 5
+    , directory
     , filepath
     , yaml
     , aeson

@@ -4,13 +4,18 @@ module Main where
 import Control.Applicative ((<$>), (<*>))
 import Data.List (intercalate, take, zip, dropWhile, isPrefixOf)
 import System.Environment (getArgs)
+import System.Directory (createDirectoryIfMissing)
 import System.FilePath.Posix (splitPath, splitFileName, takeBaseName, splitExtension)
 import Data.Yaml (decode)
 import Data.Aeson (FromJSON(..), Value(..), (.:))
 import qualified Data.ByteString as BS
 
 type FileName = String
-type DirName = String
+type DirName  = String
+type DirPath  = [DirName]
+data FullDirPath  = FullDirPath {pathPrefix :: DirPath, pathPostfix :: DirPath}
+data KeepPrefix = KeepPrefix | DontKeepPrefix
+type Path       = String
 data Projection = Projection {
     source  :: [DirName]
   , target  :: [DirName]
@@ -23,7 +28,8 @@ instance FromJSON Projection where
     -- A non-Object value is of the wrong type, so fail.
     parseJSON _ = error "Can't parse Projection from YAML/JSON"
 
-splitDirs = map (filter (/='/')) . splitPath
+splitDirs   = map (filter (/='/')) . splitPath  :: Path -> [DirName]
+unsplitDirs = intercalate "/"                   :: [DirName] -> Path
 
 main :: IO ()
 main = do
@@ -31,56 +37,68 @@ main = do
   case args of
     [filePath] -> do
       maybeProjections <- decode <$> BS.readFile "config/projections.yml"
-      putStr $ maybe
-        "bad yaml"
-        (alternative filePath)
-        maybeProjections
-
+      case maybeProjections of
+        Nothing           -> error "bad yaml"
+        Just projections  -> do
+          createDirectoryIfMissing True $ alternativePath filePath projections KeepPrefix
+          putStr $ alternative filePath projections
     _ -> putStr "wrong arguments"
 
   where
-    alternative :: FilePath -> [Projection] -> FilePath
-    alternative filePath projections =
-      let
-        alternativePath = joinDirs $ alternativeDirs (dirs filePath) projections
-        dirs = splitDirs . fst . splitFileName 
-        joinDirs = intercalate "/"
-      in
-      alternativePath ++ "/" ++ (alternativeFile filePath)
+    dirs :: String -> DirPath
+    dirs = splitDirs . fst . splitFileName
+
+    alternativePath :: String -> [Projection] -> KeepPrefix -> String
+    alternativePath filePath = toSinglePath . alternativeDirs (FullDirPath [] $ dirs filePath)
       where
-        alternativeFile :: FilePath -> FileName
-        alternativeFile filePath =
-          let
-            baseFilename = takeBaseName filePath
-            (_, extension) = splitExtension fileName
-            (_, fileName) = splitFileName filePath
-          in
-          baseFilename ++ "_spec" ++ extension
+        toSinglePath :: FullDirPath -> KeepPrefix -> Path
+        toSinglePath (FullDirPath prefix postfix) cond = case cond of
+          KeepPrefix      -> (unsplitDirs prefix) ++ "/" ++ (unsplitDirs postfix)
+          DontKeepPrefix  -> unsplitDirs postfix
 
-        alternativeDirs :: [DirName] -> [Projection] -> [DirName]
-        alternativeDirs dirs [] = ["unknown source dir: " ++ (intercalate "/" dirs)]
-        alternativeDirs dirs (projection:rest) =
+        addPrefixToPath :: DirPath -> FullDirPath -> FullDirPath
+        addPrefixToPath dirs (FullDirPath prefixDirs postfixDirs) = FullDirPath prefixDirs (dirs ++ postfixDirs)
+
+        alternativeDirs :: FullDirPath -> [Projection] -> FullDirPath
+        alternativeDirs path [] = error $ "unknown source dir: " ++ (toSinglePath path DontKeepPrefix)
+        alternativeDirs path (projection:projections) =
           maybe
-            (alternativeDirs dirs rest)
-            (target projection ++)
-            $ matchProjection dirs projection
-
+            (alternativeDirs path projections)
+            (addPrefixToPath target projection ++)
+            $ matchProjection path projections
 
           where
-            matchProjection :: [DirName] -> Projection -> Maybe [DirName]
+            matchProjection :: FullDirPath -> Projection -> Maybe FullDirPath
             matchProjection [] projection = Nothing
-            matchProjection dirs projection =
+            matchProjection (FullDirPath prefixDirs dirs@(dir:rest)) projection =
               let
                 projectionSource = source projection
               in
               if projectionSource `isPrefixOf` dirs
-              then Just $ map snd $ dropWhile (\(a, b) -> a == b) $ zipWithDefault "" "" projectionSource dirs
-              else matchProjection (tail dirs) projection
-              where
-                zipWithDefault :: a -> b -> [a] -> [b] -> [(a,b)]
-                zipWithDefault da db la lb = let len = max (length la) (length lb)
-                                                 la' = la ++ (repeat da)
-                                                 lb' = lb ++ (repeat db)
-                                             in take len $ zip la' lb'  
+                then Just $ FullDirPath prefixDirs $ map snd $ dropWhile (\(a, b) -> a == b) $ zipWithDefault "" "" projectionSource dirs
+                else matchProjection (FullDirPath (prefixDirs++[dir]) rest) projection
+
+                where
+                  zipWithDefault :: a -> b -> [a] -> [b] -> [(a,b)]
+                  zipWithDefault da db la lb = 
+                    let
+                      len = max (length la) (length lb)
+                      la' = la ++ (repeat da)
+                      lb' = lb ++ (repeat db)
+                    in take len $ zip la' lb'
+
+
+    alternative :: FilePath -> [Projection] -> FilePath
+    alternative filePath projections = (alternativePath filePath projections DontKeepPrefix) ++ "/" ++ (alternativeFile filePath)
+      where
+
+        alternativeFile :: FilePath -> FileName
+        alternativeFile filePath = baseFilename ++ "_spec" ++ extension
+          where
+            baseFilename = takeBaseName filePath
+            (_, extension) = splitExtension fileName
+            (_, fileName) = splitFileName filePath
+
+
 
 
