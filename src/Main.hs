@@ -17,8 +17,8 @@ data FullDirPath  = FullDirPath {pathPrefix :: DirPath, pathPostfix :: DirPath}
 data KeepPrefix = KeepPrefix | DontKeepPrefix
 type Path       = String
 data Projection = Projection {
-    source  :: [DirName]
-  , target  :: [DirName]
+    source  :: DirPath
+  , target  :: DirPath
   }
 
 instance FromJSON Projection where
@@ -64,12 +64,12 @@ main = do
         alternativeDirs path (projection:projections) =
           maybe
             (alternativeDirs path projections)
-            (addPrefixToPath target projection ++)
-            $ matchProjection path projections
+            id -- (addPrefixToPath target projection ++)
+            $ matchProjection path projection
 
           where
             matchProjection :: FullDirPath -> Projection -> Maybe FullDirPath
-            matchProjection [] projection = Nothing
+            matchProjection (FullDirPath _ []) projection = Nothing
             matchProjection (FullDirPath prefixDirs dirs@(dir:rest)) projection =
               let
                 projectionSource = source projection
