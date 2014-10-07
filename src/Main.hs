@@ -13,7 +13,10 @@ import qualified Data.ByteString as BS
 type FileName = String
 type DirName  = String
 type DirPath  = [DirName]
-data FullDirPath  = FullDirPath {pathPrefix :: DirPath, pathPostfix :: DirPath}
+data FullDirPath  = FullDirPath {
+    pathPrefix :: DirPath
+  , pathPostfix :: DirPath
+  }
 data KeepPrefix = KeepPrefix | DontKeepPrefix
 type Path       = String
 data Projection = Projection {
@@ -40,9 +43,10 @@ main = do
       case maybeProjections of
         Nothing           -> error "bad yaml"
         Just projections  -> do
-          createDirectoryIfMissing True $ alternativePath filePath projections KeepPrefix
+          let dirPathToEnsureExists = alternativePath filePath projections KeepPrefix
+          createDirectoryIfMissing True dirPathToEnsureExists
           putStr $ alternative filePath projections
-    _ -> putStr "wrong arguments"
+    _ -> putStrLn "wrong arguments"
 
   where
     dirs :: String -> DirPath
@@ -64,10 +68,13 @@ main = do
         alternativeDirs path (projection:projections) =
           maybe
             (alternativeDirs path projections)
-            id -- (addPrefixToPath target projection ++)
+            (prependFullDirPathPostfix $ target projection)
             $ matchProjection path projection
 
           where
+            prependFullDirPathPostfix :: DirPath -> FullDirPath -> FullDirPath
+            prependFullDirPathPostfix prepend path@FullDirPath{pathPostfix = post} = path{pathPostfix = prepend ++ post}
+
             matchProjection :: FullDirPath -> Projection -> Maybe FullDirPath
             matchProjection (FullDirPath _ []) projection = Nothing
             matchProjection (FullDirPath prefixDirs dirs@(dir:rest)) projection =
